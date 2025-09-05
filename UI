@@ -1,5 +1,5 @@
--- Relic UI Library
--- Version 1.0
+-- Relic UI Library - Simplified Modern Version
+-- Version 2.0
 
 local RelicLib = {}
 local UserInputService = game:GetService("UserInputService")
@@ -14,100 +14,186 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 -- Configuration
 local Config = {
     AccentColor = Color3.fromRGB(88, 101, 242),
-    BackgroundColor = Color3.fromRGB(23, 25, 35),
-    SecondaryColor = Color3.fromRGB(32, 34, 47),
+    BackgroundColor = Color3.fromRGB(25, 25, 30),
+    SecondaryColor = Color3.fromRGB(35, 35, 40),
     TextColor = Color3.fromRGB(255, 255, 255),
     BorderColor = Color3.fromRGB(88, 101, 242),
-    NotificationColor = Color3.fromRGB(40, 42, 54),
     
     -- Sounds
     HoverSound = "rbxasset://sounds/electronicpingshort.wav",
     ClickSound = "rbxasset://sounds/button-09.mp3",
     
-    -- Animation settings
-    HoverScale = 1.05,
-    HoverRotation = 2,
-    AnimationSpeed = 0.2
+    -- Sizes
+    MainUISize = UDim2.new(0, 380, 0, 280),
+    CategoryWidth = 45,
+    TopBarHeight = 35,
+    Gap = 15,
+    
+    -- Asset IDs for logos
+    HomeIcon = "rbxassetid://10723434711",
+    SettingsIcon = "rbxassetid://10734950020", 
+    InfoIcon = "rbxassetid://10734924532",
+    LogoIcon = "rbxassetid://10709769841"
 }
 
 -- Variables
 local MainUI = nil
 local CategoryUI = nil
 local TopBarUI = nil
-local CurrentTab = "Main"
+local ScreenGui = nil
+local CurrentTab = "Home"
 local IsUIVisible = true
 local NotificationCount = 0
-local Notifications = {}
+local Categories = {}
+local MinSize = UDim2.new(0, 250, 0, 180)
+local MaxSize = UDim2.new(0, 800, 0, 600)
 
 -- Utility Functions
 local function CreateSound(soundId)
     local sound = Instance.new("Sound")
     sound.SoundId = soundId
-    sound.Volume = 0.5
+    sound.Volume = 0.3
     sound.Parent = SoundService
     return sound
 end
 
-local function GetTime()
+local function GetFormattedTime()
     local time = os.date("*t")
-    return string.format("%02d:%02d:%02d", time.hour, time.min, time.sec)
+    local hour = time.hour
+    local ampm = "AM"
+    
+    if hour >= 12 then
+        ampm = "PM"
+        if hour > 12 then
+            hour = hour - 12
+        end
+    elseif hour == 0 then
+        hour = 12
+    end
+    
+    return string.format("%d:%02d %s", hour, time.min, ampm)
 end
 
 local function CreateStroke(parent, color, thickness)
     local stroke = Instance.new("UIStroke")
-    stroke.Color = color or Config.BorderColor
-    stroke.Thickness = thickness or 2
-    stroke.Transparency = 0.3
+    stroke.Color = color or Color3.fromRGB(0, 0, 0)
+    stroke.Thickness = thickness or 1
     stroke.Parent = parent
     return stroke
 end
 
 local function CreateCorner(parent, radius)
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius or 8)
+    corner.CornerRadius = UDim.new(0, radius or 6)
     corner.Parent = parent
     return corner
 end
 
-local function TweenProperty(object, properties, duration, easingStyle, easingDirection)
-    local tween = TweenService:Create(
-        object,
-        TweenInfo.new(duration or Config.AnimationSpeed, easingStyle or Enum.EasingStyle.Quart, easingDirection or Enum.EasingDirection.Out),
-        properties
-    )
+local function TweenProperty(object, properties, duration)
+    local tween = TweenService:Create(object, TweenInfo.new(duration or 0.15, Enum.EasingStyle.Quad), properties)
     tween:Play()
     return tween
 end
 
+-- Create gradient for notifications
+local function CreateGradient(parent, startColor, endColor)
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, startColor),
+        ColorSequenceKeypoint.new(1, endColor)
+    }
+    gradient.Rotation = 45
+    gradient.Parent = parent
+    return gradient
+end
+
 -- Animation Functions
-local function CreateHoverEffect(element, hoverColor)
-    local originalSize = element.Size
-    local originalRotation = element.Rotation
-    local originalColor = element.BackgroundColor3
-    
+local function CreateHoverEffect(element)
     local hoverSound = CreateSound(Config.HoverSound)
     local clickSound = CreateSound(Config.ClickSound)
     
     element.MouseEnter:Connect(function()
         hoverSound:Play()
-        TweenProperty(element, {
-            Size = originalSize * Config.HoverScale,
-            Rotation = originalRotation + Config.HoverRotation,
-            BackgroundColor3 = hoverColor or Config.AccentColor
-        })
+        TweenProperty(element, {Size = element.Size + UDim2.new(0, 2, 0, 2)})
     end)
     
     element.MouseLeave:Connect(function()
-        TweenProperty(element, {
-            Size = originalSize,
-            Rotation = originalRotation,
-            BackgroundColor3 = originalColor
-        })
+        TweenProperty(element, {Size = element.Size - UDim2.new(0, 2, 0, 2)})
     end)
     
-    element.MouseButton1Click:Connect(function()
-        clickSound:Play()
+    if element:IsA("TextButton") or element:IsA("ImageButton") then
+        element.MouseButton1Click:Connect(function()
+            clickSound:Play()
+        end)
+    end
+end
+
+-- Update UI positions based on main UI size
+local function UpdateUIPositions()
+    if not MainUI or not CategoryUI or not TopBarUI then return end
+    
+    local mainSize = MainUI.Size
+    local mainPos = MainUI.Position
+    
+    -- Update category position (left side with gap)
+    CategoryUI.Position = UDim2.new(0, mainPos.X.Offset - Config.CategoryWidth - Config.Gap, 0, mainPos.Y.Offset + (mainSize.Y.Offset - CategoryUI.Size.Y.Offset) / 2)
+    
+    -- Update topbar position (above with gap)
+    TopBarUI.Position = UDim2.new(0, mainPos.X.Offset, 0, mainPos.Y.Offset - Config.TopBarHeight - Config.Gap)
+end
+
+-- Create resize handle
+local function CreateResizeHandle(parent)
+    local resizeHandle = Instance.new("TextButton")
+    resizeHandle.Size = UDim2.new(0, 15, 0, 15)
+    resizeHandle.Position = UDim2.new(1, -15, 1, -15)
+    resizeHandle.BackgroundColor3 = Config.AccentColor
+    resizeHandle.BorderSizePixel = 0
+    resizeHandle.Text = ""
+    resizeHandle.ZIndex = 10
+    resizeHandle.Parent = parent
+    
+    CreateCorner(resizeHandle, 3)
+    
+    -- Resize functionality
+    local dragging = false
+    local startSize = parent.Size
+    local startPos = UDim2.new(0, 0, 0, 0)
+    
+    resizeHandle.MouseButton1Down:Connect(function()
+        dragging = true
+        startSize = parent.Size
+        local mouse = Player:GetMouse()
+        startPos = UDim2.new(0, mouse.X, 0, mouse.Y)
     end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local mouse = Player:GetMouse()
+            local deltaX = mouse.X - startPos.X.Offset
+            local deltaY = mouse.Y - startPos.Y.Offset
+            
+            local newSize = UDim2.new(0, startSize.X.Offset + deltaX, 0, startSize.Y.Offset + deltaY)
+            
+            -- Clamp to min/max size
+            newSize = UDim2.new(0, 
+                math.max(MinSize.X.Offset, math.min(MaxSize.X.Offset, newSize.X.Offset)),
+                0,
+                math.max(MinSize.Y.Offset, math.min(MaxSize.Y.Offset, newSize.Y.Offset))
+            )
+            
+            parent.Size = newSize
+            UpdateUIPositions()
+        end
+    end)
+    
+    return resizeHandle
 end
 
 -- Create Main UI Structure
@@ -121,133 +207,172 @@ local function CreateMainUI()
     -- Main Frame
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 600, 0, 400)
-    mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+    mainFrame.Size = Config.MainUISize
+    mainFrame.Position = UDim2.new(0.5, -Config.MainUISize.X.Offset/2, 0.5, -Config.MainUISize.Y.Offset/2)
     mainFrame.BackgroundColor3 = Config.BackgroundColor
     mainFrame.BorderSizePixel = 0
     mainFrame.Parent = screenGui
     
-    CreateCorner(mainFrame)
-    CreateStroke(mainFrame, Config.BorderColor, 2)
+    CreateCorner(mainFrame, 8)
     
-    -- Make draggable
-    local UIDragDetector = Instance.new("UIDragDetector")
-    UIDragDetector.Parent = mainFrame
+    -- Add resize handle
+    CreateResizeHandle(mainFrame)
     
     MainUI = mainFrame
+    ScreenGui = screenGui
     return screenGui
 end
 
--- Create Category UI
-local function CreateCategoryUI(parent)
-    local categoryFrame = Instance.new("Frame")
-    categoryFrame.Name = "CategoryFrame"
-    categoryFrame.Size = UDim2.new(0, 80, 0, 400)
-    categoryFrame.Position = UDim2.new(0, -85, 0, 0)
-    categoryFrame.BackgroundColor3 = Config.SecondaryColor
-    categoryFrame.BorderSizePixel = 0
-    categoryFrame.Parent = parent
-    
-    CreateCorner(categoryFrame)
-    CreateStroke(categoryFrame, Config.BorderColor, 2)
-    
-    -- Category buttons
-    local categories = {"Home", "Settings", "About"}
-    local categoryIcons = {"🏠", "⚙️", "ℹ️"}
-    
-    for i, category in ipairs(categories) do
-        local button = Instance.new("TextButton")
-        button.Name = category .. "Button"
-        button.Size = UDim2.new(0, 60, 0, 60)
-        button.Position = UDim2.new(0, 10, 0, 10 + (i-1) * 70)
-        button.BackgroundColor3 = Config.SecondaryColor
-        button.BorderSizePixel = 0
-        button.Text = categoryIcons[i]
-        button.TextColor3 = Config.TextColor
-        button.TextSize = 24
-        button.Font = Enum.Font.GothamBold
-        button.Parent = categoryFrame
-        
-        CreateCorner(button)
-        CreateHoverEffect(button, Config.AccentColor)
-        
-        button.MouseButton1Click:Connect(function()
-            CurrentTab = category
-            -- Switch tab logic here
-        end)
-    end
-    
-    CategoryUI = categoryFrame
-    return categoryFrame
-end
-
--- Create Top Bar
-local function CreateTopBar(parent)
+-- Create Top Bar (draggable)
+local function CreateTopBar()
     local topBar = Instance.new("Frame")
     topBar.Name = "TopBar"
-    topBar.Size = UDim2.new(0, 520, 0, 50)
-    topBar.Position = UDim2.new(0, 0, 0, -55)
+    topBar.Size = UDim2.new(0, Config.MainUISize.X.Offset, 0, Config.TopBarHeight)
+    topBar.Position = UDim2.new(0.5, -Config.MainUISize.X.Offset/2, 0.5, -Config.MainUISize.Y.Offset/2 - Config.TopBarHeight - Config.Gap)
     topBar.BackgroundColor3 = Config.SecondaryColor
     topBar.BorderSizePixel = 0
-    topBar.Parent = parent
+    topBar.Parent = ScreenGui
     
-    CreateCorner(topBar)
-    CreateStroke(topBar, Config.BorderColor, 2)
+    CreateCorner(topBar, 6)
     
-    -- Title
+    -- Logo in top left
+    local logo = Instance.new("ImageLabel")
+    logo.Size = UDim2.new(0, 25, 0, 25)
+    logo.Position = UDim2.new(0, 5, 0, 5)
+    logo.BackgroundTransparency = 1
+    logo.Image = Config.LogoIcon
+    logo.Parent = topBar
+    
+    -- Title in center
     local title = Instance.new("TextLabel")
-    title.Name = "Title"
-    title.Size = UDim2.new(0, 200, 1, 0)
-    title.Position = UDim2.new(0, 20, 0, 0)
+    title.Size = UDim2.new(1, -60, 1, 0)
+    title.Position = UDim2.new(0, 30, 0, 0)
     title.BackgroundTransparency = 1
     title.Text = "Relic.lol"
     title.TextColor3 = Config.AccentColor
-    title.TextSize = 24
+    title.TextSize = 16
     title.Font = Enum.Font.GothamBold
-    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextXAlignment = Enum.TextXAlignment.Center
     title.Parent = topBar
     
-    -- Time Display
+    CreateStroke(title, Color3.fromRGB(0, 0, 0), 1)
+    
+    -- Time Display (transparent background)
     local timeLabel = Instance.new("TextLabel")
-    timeLabel.Name = "TimeLabel"
-    timeLabel.Size = UDim2.new(0, 100, 1, 0)
-    timeLabel.Position = UDim2.new(1, -120, 0, 0)
-    timeLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    timeLabel.BackgroundTransparency = 0.3
-    timeLabel.Text = GetTime()
+    timeLabel.Size = UDim2.new(0, 70, 1, -6)
+    timeLabel.Position = UDim2.new(1, -75, 0, 3)
+    timeLabel.BackgroundTransparency = 1
+    timeLabel.Text = GetFormattedTime()
     timeLabel.TextColor3 = Config.TextColor
-    timeLabel.TextSize = 16
+    timeLabel.TextSize = 12
     timeLabel.Font = Enum.Font.Gotham
     timeLabel.Parent = topBar
     
-    CreateCorner(timeLabel, 6)
+    CreateStroke(timeLabel, Color3.fromRGB(0, 0, 0), 1)
     
     -- Update time
     spawn(function()
         while true do
             wait(1)
-            timeLabel.Text = GetTime()
+            if timeLabel.Parent then
+                timeLabel.Text = GetFormattedTime()
+            end
         end
+    end)
+    
+    -- Make draggable (moves entire UI system)
+    local UIDragDetector = Instance.new("UIDragDetector")
+    UIDragDetector.Parent = topBar
+    
+    UIDragDetector.DragStart:Connect(function()
+        -- Store relative positions
+    end)
+    
+    UIDragDetector.DragEnd:Connect(function()
+        UpdateUIPositions()
     end)
     
     TopBarUI = topBar
     return topBar
 end
 
--- UI Elements Creation Functions
+-- Create Category UI with auto-scaling
+local function CreateCategoryUI()
+    local categoryFrame = Instance.new("ScrollingFrame")
+    categoryFrame.Name = "CategoryFrame"
+    categoryFrame.Size = UDim2.new(0, Config.CategoryWidth, 0, 100) -- Will auto-scale
+    categoryFrame.Position = UDim2.new(0.5, -Config.MainUISize.X.Offset/2 - Config.CategoryWidth - Config.Gap, 0.5, -50)
+    categoryFrame.BackgroundColor3 = Config.SecondaryColor
+    categoryFrame.BorderSizePixel = 0
+    categoryFrame.ScrollBarThickness = 3
+    categoryFrame.ScrollBarImageColor3 = Config.AccentColor
+    categoryFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    categoryFrame.Parent = ScreenGui
+    
+    CreateCorner(categoryFrame, 6)
+    
+    -- Layout for categories
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 5)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.Parent = categoryFrame
+    
+    -- Auto-scale height based on content
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        local contentHeight = layout.AbsoluteContentSize.Y + 10
+        local maxHeight = Config.MainUISize.Y.Offset * 0.8
+        
+        if contentHeight > maxHeight then
+            categoryFrame.Size = UDim2.new(0, Config.CategoryWidth, 0, maxHeight)
+            categoryFrame.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
+        else
+            categoryFrame.Size = UDim2.new(0, Config.CategoryWidth, 0, contentHeight)
+            categoryFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+        end
+        
+        UpdateUIPositions()
+    end)
+    
+    CategoryUI = categoryFrame
+    return categoryFrame
+end
+
+-- Add category to the category UI
+function RelicLib:AddCategory(name, iconId, callback)
+    local button = Instance.new("ImageButton")
+    button.Name = name .. "Button"
+    button.Size = UDim2.new(0, 35, 0, 35)
+    button.BackgroundColor3 = Config.SecondaryColor
+    button.BorderSizePixel = 0
+    button.Image = iconId
+    button.Parent = CategoryUI
+    
+    CreateCorner(button, 6)
+    CreateHoverEffect(button)
+    
+    if callback then
+        button.MouseButton1Click:Connect(callback)
+    end
+    
+    table.insert(Categories, {name = name, button = button})
+    return button
+end
+
+-- UI Elements Creation Functions (simplified and smaller)
 function RelicLib:CreateButton(parent, text, callback)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 200, 0, 40)
+    button.Size = UDim2.new(0, 150, 0, 28)
     button.BackgroundColor3 = Config.SecondaryColor
     button.BorderSizePixel = 0
     button.Text = text or "Button"
     button.TextColor3 = Config.TextColor
-    button.TextSize = 16
+    button.TextSize = 13
     button.Font = Enum.Font.Gotham
     button.Parent = parent
     
-    CreateCorner(button)
-    CreateStroke(button, Config.BorderColor)
+    CreateCorner(button, 4)
+    CreateStroke(button, Color3.fromRGB(0, 0, 0), 1)
     CreateHoverEffect(button)
     
     if callback then
@@ -259,33 +384,36 @@ end
 
 function RelicLib:CreateToggle(parent, text, default, callback)
     local toggleFrame = Instance.new("Frame")
-    toggleFrame.Size = UDim2.new(0, 250, 0, 40)
+    toggleFrame.Size = UDim2.new(0, 200, 0, 25)
     toggleFrame.BackgroundTransparency = 1
     toggleFrame.Parent = parent
     
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 180, 1, 0)
+    label.Size = UDim2.new(0, 140, 1, 0)
     label.Position = UDim2.new(0, 0, 0, 0)
     label.BackgroundTransparency = 1
     label.Text = text or "Toggle"
     label.TextColor3 = Config.TextColor
-    label.TextSize = 16
+    label.TextSize = 12
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = toggleFrame
     
+    CreateStroke(label, Color3.fromRGB(0, 0, 0), 1)
+    
     local toggleButton = Instance.new("TextButton")
-    toggleButton.Size = UDim2.new(0, 60, 0, 30)
-    toggleButton.Position = UDim2.new(1, -60, 0, 5)
+    toggleButton.Size = UDim2.new(0, 45, 0, 20)
+    toggleButton.Position = UDim2.new(1, -45, 0, 2.5)
     toggleButton.BackgroundColor3 = default and Config.AccentColor or Config.SecondaryColor
     toggleButton.BorderSizePixel = 0
     toggleButton.Text = default and "ON" or "OFF"
     toggleButton.TextColor3 = Config.TextColor
-    toggleButton.TextSize = 14
+    toggleButton.TextSize = 10
     toggleButton.Font = Enum.Font.GothamBold
     toggleButton.Parent = toggleFrame
     
-    CreateCorner(toggleButton, 15)
+    CreateCorner(toggleButton, 10)
+    CreateStroke(toggleButton, Color3.fromRGB(0, 0, 0), 1)
     CreateHoverEffect(toggleButton)
     
     local isToggled = default or false
@@ -300,34 +428,36 @@ function RelicLib:CreateToggle(parent, text, default, callback)
         end
     end)
     
-    return toggleFrame, isToggled
+    return toggleFrame
 end
 
 function RelicLib:CreateSlider(parent, text, min, max, default, callback)
     local sliderFrame = Instance.new("Frame")
-    sliderFrame.Size = UDim2.new(0, 300, 0, 60)
+    sliderFrame.Size = UDim2.new(0, 220, 0, 40)
     sliderFrame.BackgroundTransparency = 1
     sliderFrame.Parent = parent
     
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
+    label.Size = UDim2.new(1, 0, 0, 15)
     label.Position = UDim2.new(0, 0, 0, 0)
     label.BackgroundTransparency = 1
     label.Text = text or "Slider"
     label.TextColor3 = Config.TextColor
-    label.TextSize = 16
+    label.TextSize = 12
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = sliderFrame
     
+    CreateStroke(label, Color3.fromRGB(0, 0, 0), 1)
+    
     local sliderTrack = Instance.new("Frame")
-    sliderTrack.Size = UDim2.new(1, 0, 0, 8)
-    sliderTrack.Position = UDim2.new(0, 0, 0, 30)
+    sliderTrack.Size = UDim2.new(1, -40, 0, 6)
+    sliderTrack.Position = UDim2.new(0, 0, 0, 20)
     sliderTrack.BackgroundColor3 = Config.SecondaryColor
     sliderTrack.BorderSizePixel = 0
     sliderTrack.Parent = sliderFrame
     
-    CreateCorner(sliderTrack, 4)
+    CreateCorner(sliderTrack, 3)
     
     local sliderFill = Instance.new("Frame")
     sliderFill.Size = UDim2.new(0, 0, 1, 0)
@@ -336,28 +466,19 @@ function RelicLib:CreateSlider(parent, text, min, max, default, callback)
     sliderFill.BorderSizePixel = 0
     sliderFill.Parent = sliderTrack
     
-    CreateCorner(sliderFill, 4)
-    
-    local sliderKnob = Instance.new("TextButton")
-    sliderKnob.Size = UDim2.new(0, 20, 0, 20)
-    sliderKnob.Position = UDim2.new(0, -10, 0, -6)
-    sliderKnob.BackgroundColor3 = Config.AccentColor
-    sliderKnob.BorderSizePixel = 0
-    sliderKnob.Text = ""
-    sliderKnob.Parent = sliderTrack
-    
-    CreateCorner(sliderKnob, 10)
-    CreateHoverEffect(sliderKnob)
+    CreateCorner(sliderFill, 3)
     
     local valueLabel = Instance.new("TextLabel")
-    valueLabel.Size = UDim2.new(0, 50, 0, 20)
-    valueLabel.Position = UDim2.new(1, 10, 0, 25)
+    valueLabel.Size = UDim2.new(0, 35, 0, 15)
+    valueLabel.Position = UDim2.new(1, -35, 0, 17)
     valueLabel.BackgroundTransparency = 1
     valueLabel.Text = tostring(default or min)
     valueLabel.TextColor3 = Config.TextColor
-    valueLabel.TextSize = 14
+    valueLabel.TextSize = 10
     valueLabel.Font = Enum.Font.Gotham
     valueLabel.Parent = sliderFrame
+    
+    CreateStroke(valueLabel, Color3.fromRGB(0, 0, 0), 1)
     
     local currentValue = default or min
     local dragging = false
@@ -365,7 +486,6 @@ function RelicLib:CreateSlider(parent, text, min, max, default, callback)
     local function updateSlider(value)
         local percent = (value - min) / (max - min)
         sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-        sliderKnob.Position = UDim2.new(percent, -10, 0, -6)
         valueLabel.Text = tostring(math.floor(value))
         currentValue = value
         
@@ -374,8 +494,10 @@ function RelicLib:CreateSlider(parent, text, min, max, default, callback)
         end
     end
     
-    sliderKnob.MouseButton1Down:Connect(function()
-        dragging = true
+    sliderTrack.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+        end
     end)
     
     UserInputService.InputEnded:Connect(function(input)
@@ -386,7 +508,7 @@ function RelicLib:CreateSlider(parent, text, min, max, default, callback)
     
     UserInputService.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local mouse = Players.LocalPlayer:GetMouse()
+            local mouse = Player:GetMouse()
             local relativeX = mouse.X - sliderTrack.AbsolutePosition.X
             local percent = math.clamp(relativeX / sliderTrack.AbsoluteSize.X, 0, 1)
             local value = min + (max - min) * percent
@@ -395,436 +517,86 @@ function RelicLib:CreateSlider(parent, text, min, max, default, callback)
     end)
     
     updateSlider(currentValue)
-    
-    return sliderFrame, currentValue
-end
-
-function RelicLib:CreateColorPicker(parent, text, default, callback)
-    local colorFrame = Instance.new("Frame")
-    colorFrame.Size = UDim2.new(0, 300, 0, 80)
-    colorFrame.BackgroundTransparency = 1
-    colorFrame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.Position = UDim2.new(0, 0, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text or "Color Picker"
-    label.TextColor3 = Config.TextColor
-    label.TextSize = 16
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = colorFrame
-    
-    local rainbowSlider = Instance.new("Frame")
-    rainbowSlider.Size = UDim2.new(0, 200, 0, 20)
-    rainbowSlider.Position = UDim2.new(0, 0, 0, 25)
-    rainbowSlider.BorderSizePixel = 0
-    rainbowSlider.Parent = colorFrame
-    
-    CreateCorner(rainbowSlider, 10)
-    
-    -- Create rainbow gradient
-    local gradient = Instance.new("UIGradient")
-    gradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
-        ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
-        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 255, 255)),
-        ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
-        ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
-    }
-    gradient.Parent = rainbowSlider
-    
-    local colorKnob = Instance.new("TextButton")
-    colorKnob.Size = UDim2.new(0, 20, 0, 30)
-    colorKnob.Position = UDim2.new(0, 0, 0, -5)
-    colorKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    colorKnob.BorderSizePixel = 0
-    colorKnob.Text = ""
-    colorKnob.Parent = rainbowSlider
-    
-    CreateCorner(colorKnob, 10)
-    CreateStroke(colorKnob, Color3.fromRGB(0, 0, 0), 2)
-    
-    local colorPreview = Instance.new("Frame")
-    colorPreview.Size = UDim2.new(0, 50, 0, 50)
-    colorPreview.Position = UDim2.new(0, 220, 0, 25)
-    colorPreview.BackgroundColor3 = default or Color3.fromRGB(255, 0, 0)
-    colorPreview.BorderSizePixel = 0
-    colorPreview.Parent = colorFrame
-    
-    CreateCorner(colorPreview, 8)
-    CreateStroke(colorPreview, Config.BorderColor)
-    
-    local rgbLabel = Instance.new("TextLabel")
-    rgbLabel.Size = UDim2.new(0, 200, 0, 20)
-    rgbLabel.Position = UDim2.new(0, 0, 0, 55)
-    rgbLabel.BackgroundTransparency = 1
-    rgbLabel.Text = "RGB: 255, 0, 0"
-    rgbLabel.TextColor3 = Config.TextColor
-    rgbLabel.TextSize = 12
-    rgbLabel.Font = Enum.Font.Gotham
-    rgbLabel.TextXAlignment = Enum.TextXAlignment.Left
-    rgbLabel.Parent = colorFrame
-    
-    local currentColor = default or Color3.fromRGB(255, 0, 0)
-    local dragging = false
-    
-    local function updateColor(hue)
-        local color = Color3.fromHSV(hue, 1, 1)
-        currentColor = color
-        colorPreview.BackgroundColor3 = color
-        rgbLabel.Text = string.format("RGB: %d, %d, %d", 
-            math.floor(color.R * 255), 
-            math.floor(color.G * 255), 
-            math.floor(color.B * 255))
-        
-        if callback then
-            callback(color)
-        end
-    end
-    
-    colorKnob.MouseButton1Down:Connect(function()
-        dragging = true
-    end)
-    
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local mouse = Players.LocalPlayer:GetMouse()
-            local relativeX = mouse.X - rainbowSlider.AbsolutePosition.X
-            local percent = math.clamp(relativeX / rainbowSlider.AbsoluteSize.X, 0, 1)
-            colorKnob.Position = UDim2.new(percent, -10, 0, -5)
-            updateColor(percent)
-        end
-    end)
-    
-    return colorFrame, currentColor
-end
-
-function RelicLib:CreateDropdown(parent, text, options, callback)
-    local dropdownFrame = Instance.new("Frame")
-    dropdownFrame.Size = UDim2.new(0, 250, 0, 40)
-    dropdownFrame.BackgroundTransparency = 1
-    dropdownFrame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 100, 1, 0)
-    label.Position = UDim2.new(0, 0, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text or "Dropdown"
-    label.TextColor3 = Config.TextColor
-    label.TextSize = 16
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = dropdownFrame
-    
-    local dropdown = Instance.new("TextButton")
-    dropdown.Size = UDim2.new(0, 140, 0, 35)
-    dropdown.Position = UDim2.new(1, -140, 0, 2.5)
-    dropdown.BackgroundColor3 = Config.SecondaryColor
-    dropdown.BorderSizePixel = 0
-    dropdown.Text = options[1] or "Select..."
-    dropdown.TextColor3 = Config.TextColor
-    dropdown.TextSize = 14
-    dropdown.Font = Enum.Font.Gotham
-    dropdown.Parent = dropdownFrame
-    
-    CreateCorner(dropdown)
-    CreateStroke(dropdown, Config.BorderColor)
-    CreateHoverEffect(dropdown)
-    
-    local dropdownList = Instance.new("Frame")
-    dropdownList.Size = UDim2.new(0, 140, 0, #options * 30)
-    dropdownList.Position = UDim2.new(1, -140, 0, 40)
-    dropdownList.BackgroundColor3 = Config.SecondaryColor
-    dropdownList.BorderSizePixel = 0
-    dropdownList.Visible = false
-    dropdownList.ZIndex = 10
-    dropdownList.Parent = dropdownFrame
-    
-    CreateCorner(dropdownList)
-    CreateStroke(dropdownList, Config.BorderColor)
-    
-    local isOpen = false
-    
-    dropdown.MouseButton1Click:Connect(function()
-        isOpen = not isOpen
-        dropdownList.Visible = isOpen
-    end)
-    
-    for i, option in ipairs(options) do
-        local optionButton = Instance.new("TextButton")
-        optionButton.Size = UDim2.new(1, 0, 0, 30)
-        optionButton.Position = UDim2.new(0, 0, 0, (i-1) * 30)
-        optionButton.BackgroundColor3 = Config.SecondaryColor
-        optionButton.BorderSizePixel = 0
-        optionButton.Text = option
-        optionButton.TextColor3 = Config.TextColor
-        optionButton.TextSize = 14
-        optionButton.Font = Enum.Font.Gotham
-        optionButton.ZIndex = 11
-        optionButton.Parent = dropdownList
-        
-        CreateHoverEffect(optionButton)
-        
-        optionButton.MouseButton1Click:Connect(function()
-            dropdown.Text = option
-            dropdownList.Visible = false
-            isOpen = false
-            if callback then
-                callback(option, i)
-            end
-        end)
-    end
-    
-    return dropdownFrame
-end
-
-function RelicLib:CreateKeybind(parent, text, default, callback)
-    local keybindFrame = Instance.new("Frame")
-    keybindFrame.Size = UDim2.new(0, 250, 0, 40)
-    keybindFrame.BackgroundTransparency = 1
-    keybindFrame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 150, 1, 0)
-    label.Position = UDim2.new(0, 0, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text or "Keybind"
-    label.TextColor3 = Config.TextColor
-    label.TextSize = 16
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = keybindFrame
-    
-    local keybindButton = Instance.new("TextButton")
-    keybindButton.Size = UDim2.new(0, 90, 0, 35)
-    keybindButton.Position = UDim2.new(1, -90, 0, 2.5)
-    keybindButton.BackgroundColor3 = Config.SecondaryColor
-    keybindButton.BorderSizePixel = 0
-    keybindButton.Text = default or "None"
-    keybindButton.TextColor3 = Config.TextColor
-    keybindButton.TextSize = 14
-    keybindButton.Font = Enum.Font.Gotham
-    keybindButton.Parent = keybindFrame
-    
-    CreateCorner(keybindButton)
-    CreateStroke(keybindButton, Config.BorderColor)
-    CreateHoverEffect(keybindButton)
-    
-    local isBinding = false
-    local currentKey = default
-    
-    keybindButton.MouseButton1Click:Connect(function()
-        if not isBinding then
-            isBinding = true
-            keybindButton.Text = "Press key..."
-            keybindButton.BackgroundColor3 = Config.AccentColor
-        end
-    end)
-    
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if isBinding and not gameProcessed then
-            local keyName = input.KeyCode.Name
-            if keyName ~= "Unknown" then
-                currentKey = keyName
-                keybindButton.Text = keyName
-                keybindButton.BackgroundColor3 = Config.SecondaryColor
-                isBinding = false
-                
-                if callback then
-                    callback(keyName)
-                end
-            end
-        elseif input.KeyCode.Name == currentKey and not gameProcessed then
-            if callback then
-                callback(currentKey)
-            end
-        end
-    end)
-    
-    return keybindFrame, currentKey
+    return sliderFrame
 end
 
 function RelicLib:CreateLabel(parent, text)
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 300, 0, 30)
+    label.Size = UDim2.new(0, 200, 0, 20)
     label.BackgroundTransparency = 1
     label.Text = text or "Label"
     label.TextColor3 = Config.TextColor
-    label.TextSize = 16
+    label.TextSize = 12
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = parent
     
+    CreateStroke(label, Color3.fromRGB(0, 0, 0), 1)
     return label
 end
 
--- Notification System
+-- Modern notification system with gradient
 function RelicLib:CreateNotification(title, message, duration, position)
     NotificationCount = NotificationCount + 1
     local notificationId = NotificationCount
     
     local notification = Instance.new("Frame")
-    notification.Size = UDim2.new(0, 300, 0, 80)
-    notification.BackgroundColor3 = Config.NotificationColor
+    notification.Size = UDim2.new(0, 250, 0, 60)
     notification.BorderSizePixel = 0
     notification.ZIndex = 100
     
     -- Position notifications
     if position == "top-left" then
-        notification.Position = UDim2.new(0, 20, 0, 20 + (notificationId - 1) * 90)
+        notification.Position = UDim2.new(0, 15, 0, 15 + (notificationId - 1) * 70)
     else -- bottom-right
-        notification.Position = UDim2.new(1, -320, 1, -100 - (notificationId - 1) * 90)
+        notification.Position = UDim2.new(1, -265, 1, -75 - (notificationId - 1) * 70)
     end
     
-    notification.Parent = PlayerGui.RelicUI
+    notification.Parent = ScreenGui
     
-    CreateCorner(notification)
-    CreateStroke(notification, Config.AccentColor)
+    CreateCorner(notification, 6)
+    CreateGradient(notification, Config.AccentColor, Color3.fromRGB(0, 0, 0))
     
     local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(1, -20, 0, 25)
-    titleLabel.Position = UDim2.new(0, 10, 0, 5)
+    titleLabel.Size = UDim2.new(1, -15, 0, 18)
+    titleLabel.Position = UDim2.new(0, 8, 0, 5)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Text = title or "Notification"
-    titleLabel.TextColor3 = Config.AccentColor
-    titleLabel.TextSize = 16
+    titleLabel.TextColor3 = Config.TextColor
+    titleLabel.TextSize = 13
     titleLabel.Font = Enum.Font.GothamBold
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = notification
     
+    CreateStroke(titleLabel, Color3.fromRGB(0, 0, 0), 1)
+    
     local messageLabel = Instance.new("TextLabel")
-    messageLabel.Size = UDim2.new(1, -20, 0, 45)
-    messageLabel.Position = UDim2.new(0, 10, 0, 30)
+    messageLabel.Size = UDim2.new(1, -15, 0, 35)
+    messageLabel.Position = UDim2.new(0, 8, 0, 20)
     messageLabel.BackgroundTransparency = 1
     messageLabel.Text = message or ""
     messageLabel.TextColor3 = Config.TextColor
-    messageLabel.TextSize = 14
+    messageLabel.TextSize = 11
     messageLabel.Font = Enum.Font.Gotham
     messageLabel.TextXAlignment = Enum.TextXAlignment.Left
     messageLabel.TextWrapped = true
     messageLabel.Parent = notification
     
+    CreateStroke(messageLabel, Color3.fromRGB(0, 0, 0), 1)
+    
     -- Slide in animation
-    notification.Position = notification.Position + UDim2.new(0, 320, 0, 0)
-    TweenProperty(notification, {
-        Position = notification.Position - UDim2.new(0, 320, 0, 0)
-    }, 0.5)
+    local originalPos = notification.Position
+    notification.Position = originalPos + UDim2.new(0, 270, 0, 0)
+    TweenProperty(notification, {Position = originalPos}, 0.3)
     
     -- Auto close
-    wait(duration or 3)
-    TweenProperty(notification, {
-        Position = notification.Position + UDim2.new(0, 320, 0, 0)
-    }, 0.5)
-    
-    wait(0.5)
-    notification:Destroy()
-    
-    table.remove(Notifications, notificationId)
-    NotificationCount = math.max(0, NotificationCount - 1)
-end
-
--- Confirmation Dialog
-function RelicLib:CreateConfirmation(title, message, callback)
-    local overlay = Instance.new("Frame")
-    overlay.Size = UDim2.new(1, 0, 1, 0)
-    overlay.Position = UDim2.new(0, 0, 0, 0)
-    overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    overlay.BackgroundTransparency = 0.5
-    overlay.BorderSizePixel = 0
-    overlay.ZIndex = 200
-    overlay.Parent = PlayerGui.RelicUI
-    
-    local dialog = Instance.new("Frame")
-    dialog.Size = UDim2.new(0, 400, 0, 200)
-    dialog.Position = UDim2.new(0.5, -200, 0.5, -100)
-    dialog.BackgroundColor3 = Config.BackgroundColor
-    dialog.BorderSizePixel = 0
-    dialog.ZIndex = 201
-    dialog.Parent = overlay
-    
-    CreateCorner(dialog)
-    CreateStroke(dialog, Config.AccentColor, 3)
-    
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(1, -40, 0, 40)
-    titleLabel.Position = UDim2.new(0, 20, 0, 20)
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = title or "Confirmation"
-    titleLabel.TextColor3 = Config.AccentColor
-    titleLabel.TextSize = 20
-    titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.ZIndex = 202
-    titleLabel.Parent = dialog
-    
-    local messageLabel = Instance.new("TextLabel")
-    messageLabel.Size = UDim2.new(1, -40, 0, 80)
-    messageLabel.Position = UDim2.new(0, 20, 0, 60)
-    messageLabel.BackgroundTransparency = 1
-    messageLabel.Text = message or "Are you sure?"
-    messageLabel.TextColor3 = Config.TextColor
-    messageLabel.TextSize = 16
-    messageLabel.Font = Enum.Font.Gotham
-    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
-    messageLabel.TextWrapped = true
-    messageLabel.ZIndex = 202
-    messageLabel.Parent = dialog
-    
-    local yesButton = Instance.new("TextButton")
-    yesButton.Size = UDim2.new(0, 80, 0, 35)
-    yesButton.Position = UDim2.new(1, -190, 1, -50)
-    yesButton.BackgroundColor3 = Config.AccentColor
-    yesButton.BorderSizePixel = 0
-    yesButton.Text = "Yes"
-    yesButton.TextColor3 = Config.TextColor
-    yesButton.TextSize = 16
-    yesButton.Font = Enum.Font.GothamBold
-    yesButton.ZIndex = 202
-    yesButton.Parent = dialog
-    
-    CreateCorner(yesButton)
-    CreateHoverEffect(yesButton)
-    
-    local noButton = Instance.new("TextButton")
-    noButton.Size = UDim2.new(0, 80, 0, 35)
-    noButton.Position = UDim2.new(1, -100, 1, -50)
-    noButton.BackgroundColor3 = Config.SecondaryColor
-    noButton.BorderSizePixel = 0
-    noButton.Text = "No"
-    noButton.TextColor3 = Config.TextColor
-    noButton.TextSize = 16
-    noButton.Font = Enum.Font.GothamBold
-    noButton.ZIndex = 202
-    noButton.Parent = dialog
-    
-    CreateCorner(noButton)
-    CreateHoverEffect(noButton)
-    
-    yesButton.MouseButton1Click:Connect(function()
-        overlay:Destroy()
-        if callback then
-            callback(true)
-        end
+    spawn(function()
+        wait(duration or 3)
+        TweenProperty(notification, {Position = originalPos + UDim2.new(0, 270, 0, 0)}, 0.3)
+        wait(0.3)
+        notification:Destroy()
+        NotificationCount = math.max(0, NotificationCount - 1)
     end)
-    
-    noButton.MouseButton1Click:Connect(function()
-        overlay:Destroy()
-        if callback then
-            callback(false)
-        end
-    end)
-    
-    return overlay
 end
 
 -- Toggle UI Visibility
@@ -832,45 +604,27 @@ local function ToggleUI()
     IsUIVisible = not IsUIVisible
     local targetTransparency = IsUIVisible and 0 or 1
     
-    TweenProperty(MainUI, {BackgroundTransparency = targetTransparency}, 0.3)
-    TweenProperty(CategoryUI, {BackgroundTransparency = targetTransparency}, 0.3)
-    TweenProperty(TopBarUI, {BackgroundTransparency = targetTransparency}, 0.3)
-    
-    for _, child in pairs(MainUI:GetDescendants()) do
-        if child:IsA("GuiObject") and child ~= MainUI then
-            if child:IsA("TextLabel") or child:IsA("TextButton") then
-                TweenProperty(child, {TextTransparency = targetTransparency}, 0.3)
-            end
-            if child.BackgroundTransparency < 1 then
-                TweenProperty(child, {BackgroundTransparency = targetTransparency}, 0.3)
-            end
-        end
-    end
-    
-    for _, child in pairs(CategoryUI:GetDescendants()) do
-        if child:IsA("GuiObject") and child ~= CategoryUI then
-            if child:IsA("TextLabel") or child:IsA("TextButton") then
-                TweenProperty(child, {TextTransparency = targetTransparency}, 0.3)
-            end
-            if child.BackgroundTransparency < 1 then
-                TweenProperty(child, {BackgroundTransparency = targetTransparency}, 0.3)
-            end
-        end
-    end
-    
-    for _, child in pairs(TopBarUI:GetDescendants()) do
-        if child:IsA("GuiObject") and child ~= TopBarUI then
-            if child:IsA("TextLabel") or child:IsA("TextButton") then
-                TweenProperty(child, {TextTransparency = targetTransparency}, 0.3)
-            end
-            if child.BackgroundTransparency < 1 then
-                TweenProperty(child, {BackgroundTransparency = targetTransparency}, 0.3)
+    for _, ui in pairs({MainUI, CategoryUI, TopBarUI}) do
+        if ui then
+            TweenProperty(ui, {BackgroundTransparency = targetTransparency}, 0.2)
+            for _, child in pairs(ui:GetDescendants()) do
+                if child:IsA("GuiObject") then
+                    if child:IsA("TextLabel") or child:IsA("TextButton") then
+                        TweenProperty(child, {TextTransparency = targetTransparency}, 0.2)
+                    end
+                    if child:IsA("ImageLabel") or child:IsA("ImageButton") then
+                        TweenProperty(child, {ImageTransparency = targetTransparency}, 0.2)
+                    end
+                    if child.BackgroundTransparency < 1 then
+                        TweenProperty(child, {BackgroundTransparency = targetTransparency}, 0.2)
+                    end
+                end
             end
         end
     end
 end
 
--- Input handling for UI toggle
+-- Input handling
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
         if input.KeyCode == Enum.KeyCode.LeftControl then
@@ -885,86 +639,66 @@ end)
 -- Main Library Functions
 function RelicLib:CreateWindow(title)
     local screenGui = CreateMainUI()
-    local categoryUI = CreateCategoryUI(MainUI)
-    local topBar = CreateTopBar(MainUI)
+    local topBar = CreateTopBar()
+    local categoryUI = CreateCategoryUI()
     
-    -- Create content area
+    -- Create content area with padding
     local contentFrame = Instance.new("ScrollingFrame")
     contentFrame.Name = "ContentFrame"
-    contentFrame.Size = UDim2.new(1, -40, 1, -40)
-    contentFrame.Position = UDim2.new(0, 20, 0, 20)
+    contentFrame.Size = UDim2.new(1, -20, 1, -20)
+    contentFrame.Position = UDim2.new(0, 10, 0, 10)
     contentFrame.BackgroundTransparency = 1
     contentFrame.BorderSizePixel = 0
-    contentFrame.ScrollBarThickness = 8
+    contentFrame.ScrollBarThickness = 4
     contentFrame.ScrollBarImageColor3 = Config.AccentColor
     contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     contentFrame.Parent = MainUI
     
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 10)
+    layout.Padding = UDim.new(0, 8)
     layout.Parent = contentFrame
     
     -- Auto-resize canvas
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        contentFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+        contentFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 15)
     end)
+    
+    -- Add default categories
+    self:AddCategory("Home", Config.HomeIcon, function() CurrentTab = "Home" end)
+    self:AddCategory("Settings", Config.SettingsIcon, function() CurrentTab = "Settings" end)
+    self:AddCategory("Info", Config.InfoIcon, function() CurrentTab = "Info" end)
     
     return {
         MainFrame = MainUI,
-        CategoryFrame = categoryUI,
-        TopBar = topBar,
+        CategoryFrame = CategoryUI,
+        TopBar = TopBarUI,
         ContentFrame = contentFrame,
         ScreenGui = screenGui
     }
 end
 
--- Preset Example Window
+-- Create example preset
 function RelicLib:CreatePresetExample()
     local window = self:CreateWindow("Relic Example")
     local content = window.ContentFrame
     
-    -- Example elements
-    self:CreateLabel(content, "Welcome to Relic UI Library!")
-    
-    self:CreateButton(content, "Example Button", function()
-        self:CreateNotification("Button Clicked", "You clicked the example button!", 2, "bottom-right")
+    self:CreateLabel(content, "🎮 Relic UI - Modern & Simple")
+    self:CreateButton(content, "Test Button", function()
+        self:CreateNotification("Success", "Button clicked!", 2, "bottom-right")
     end)
     
-    self:CreateToggle(content, "Example Toggle", false, function(state)
-        print("Toggle state:", state)
+    self:CreateToggle(content, "Enable Feature", false, function(state)
+        print("Toggle:", state)
     end)
     
-    self:CreateSlider(content, "Example Slider", 0, 100, 50, function(value)
-        print("Slider value:", value)
-    end)
-    
-    self:CreateColorPicker(content, "Example Color Picker", Color3.fromRGB(255, 0, 0), function(color)
-        print("Selected color:", color)
-    end)
-    
-    self:CreateDropdown(content, "Example Dropdown", {"Option 1", "Option 2", "Option 3"}, function(selected, index)
-        print("Selected:", selected, "Index:", index)
-    end)
-    
-    self:CreateKeybind(content, "Example Keybind", "F", function(key)
-        print("Keybind pressed:", key)
-    end)
-    
-    self:CreateButton(content, "Show Confirmation", function()
-        self:CreateConfirmation("Test Confirmation", "Are you sure you want to continue?", function(result)
-            if result then
-                self:CreateNotification("Confirmed", "You clicked Yes!", 2, "top-left")
-            else
-                self:CreateNotification("Cancelled", "You clicked No!", 2, "top-left")
-            end
-        end)
+    self:CreateSlider(content, "Speed", 0, 100, 50, function(value)
+        print("Slider:", value)
     end)
     
     return window
 end
 
--- Initialize and return library
+-- Initialize
 RelicLib:CreatePresetExample()
-
 return RelicLib
